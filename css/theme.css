@@ -80,7 +80,6 @@ BODY {
 #mainHeader {
     display: block;
     overflow: hidden;
-    box-shadow: 5px 5px 10px 10px #000;
     position: relative;
     background: transparent url(../images/logoheader.jpg) 10px 10px no-repeat;
     height: 290px;

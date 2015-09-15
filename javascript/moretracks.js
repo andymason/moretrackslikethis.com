@@ -65,7 +65,7 @@ var moreTracksLikeThis = (function(){
             
             
             setTimeout(function() {
-                getLastFMSimilarData($('#track').val(), $('#artist').val());
+                getLastFMSimilarData(formatSearchString($('#track').val()), formatSearchString($('#artist').val()));
             }, 1000);
             $('#complete').hide();
             $('#results').show();
@@ -133,31 +133,21 @@ var moreTracksLikeThis = (function(){
     
     // prepare the lastfm url through yql
     var getLastFMSimilarURL = function(track, artist) {
-        
-        var track = $.trim(track);
-        var artist = $.trim(artist);
-        
-        var url = 'http://query.yahooapis.com/v1/public/yql?q=';
-        var qry = "select%20similartracks.track%20from%20lastfm.track.getsimilar%20where%20api_key%3D'f848f5efdbf20b9366985a24f7aed172'%20and%20artist%3D'" + encodeURIComponent(artist) + "'%20and%20track%3D'" + encodeURIComponent(track) + "'%20limit%20" + MAX_TRACKS_TO_RETURN;
-        var params = '&format=json&_maxage=3600000&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys&callback=?';
-
-        return url+qry+params;
+        var track = encodeURIComponent(  $.trim(track)  );
+        var artist = encodeURIComponent( $.trim(artist) );
+        var url = 'http://ws.audioscrobbler.com/2.0/?method=track.getSimilar&autocorrect=1&api_key=f848f5efdbf20b9366985a24f7aed172&format=json&limit='+ MAX_TRACKS_TO_RETURN + '&';
+        url += 'artist=' + artist + '&track=' + track;
+        return url;
     };
     
     // look up the track and artist in lastfm's similar search
     var getLastFMSimilarData = function(track, artist) {
-        return $.ajax({
-            url: getLastFMSimilarURL(track, artist),
-            dataType: 'jsonp',
-            jsonp: 'callback',
-            jsonpCallback: 'moreTracksLikeThis.callbackLastFMData',
-            cache:true,
-        });
+        return $.getJSON(getLastFMSimilarURL(track, artist), callbackLastFMData);
     };
     
     // process the data from lastfm
     var callbackLastFMData = function (data) {
-        if (data.query.results) {
+        if (data && data.hasOwnProperty( 'similartracks' ) ) {
             $('#messages').empty();
             $('#messages').hide('slow');
             $('#complete').hide();
@@ -167,14 +157,12 @@ var moreTracksLikeThis = (function(){
             
             $('#resultsList').empty();
             var $resultEl = $('#resultsList');
-            $.each(data.query.results.lfm, function(index) {
-                if (!this.similartracks) return;
-                var trackObj = this.similartracks.track[1];
+            $.each(data.similartracks.track, function(index, trackObj) {
                 var artist = trackObj.artist.name || "artist";
                 var track = trackObj.name || "track";
 
                 var $rowEl = $('<li class="round"></li>');
-                $rowEl.append($('<img src="'+(trackObj.image && trackObj.image[trackObj.image.length-1].content)+ '"/><span class="overlay"></span>'));
+                $rowEl.append($('<img src="'+trackObj.image[1]['#text'] + '"/><span class="overlay"></span>'));
                 $rowEl.append('<strong>' + track + '</strong><br />');
                 $rowEl.append('by <strong>' + artist + '</strong><br />');
 
@@ -195,7 +183,7 @@ var moreTracksLikeThis = (function(){
                     getSpotifyLinks($spotiLinkEl, artist, track);
                 }, 500 * parseInt(index));
             });
-            spotifyCountdown = data.query.results.lfm.length;
+            spotifyCountdown = data.similartracks.track.length;
         } else {
             $('#messages').html('<p>Sorry, there was no results for that search. Try something else.</p>');
         }
@@ -203,28 +191,18 @@ var moreTracksLikeThis = (function(){
     
     // Lookup tracks from Spotify metadata api
     var getSpotifyLinks = function($el, artist, track) {
-        var url = 'http://query.yahooapis.com/v1/public/yql?q=';
-        var spotifyurl = "http://ws.spotify.com/search/1/track?q=" + encodeURIComponent(artist) + "%20" + encodeURIComponent(track);
-        spotifyEls[spotifyurl] = $el;
-        var qry = "select%20track.href%20from%20xml%20where%20url%3D'" + encodeURIComponent(spotifyurl) + "'%20limit%201";
-        var params = '&format=json&diagnostics=true&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys&callback=?';
-        return $.ajax({
-            url: url+qry+params,
-            dataType: 'jsonp',
-            jsonp: 'callback',
-            jsonpCallback: 'moreTracksLikeThis.callbackSpotifyData',
-            cache:true,
+        var spotifyurl = 'https://api.spotify.com/v1/search?limit=1&type=track&q=artist:'  + encodeURIComponent(artist) + '%20track:' + encodeURIComponent(track);
+        $.getJSON(spotifyurl, function(data) {
+            callbackSpotifyData(data, $el);
         });
-        
     };
     
     // process the spotify result
-    var callbackSpotifyData = function(data) {
+    var callbackSpotifyData = function(data, $el) {
         spotifyCountdown--;
-        var $el = spotifyEls[data.query.diagnostics.url.content];
         var href = '';
-        if (data.query.results) {
-            href = data.query.results.tracks.track.href;
+        if (data.tracks.total > 0) {
+            href = data.tracks.items[0].uri;
             $el.html('<a href="' + href + '">' + href + '</a>');
         } else {
             $el.html('<strong>Sorry, Spotify doesn&rsquo;t have that track</strong>');
@@ -259,8 +237,6 @@ var moreTracksLikeThis = (function(){
 
         $('#results-textarea').val(getSpotifyStr());
         var draggerContent = getSpotifyStr();
-        // if firefox, use a nice drop-image.  webkit won't allow drag of text if user clicks image first
-        if ($.browser.mozilla) draggerContent = '<img src="images/drag_button.png" width="166" height="163" /><br/><br/><br/><br/>' + draggerContent;
         $('#dragger').html(draggerContent);
         $('#complete').fadeIn('slow');
 
@@ -269,29 +245,42 @@ var moreTracksLikeThis = (function(){
 
     // Lookup spotify urls
     var getSpotifyLookup = function(lookupurl) {
-        var url = 'http://query.yahooapis.com/v1/public/yql?q=';
-        var spotifyurl = "http://ws.spotify.com/lookup/1/?uri=" + encodeURIComponent(lookupurl);
-        var qry = "select%20artist.name,name%20from%20xml%20where%20url%3D'" + encodeURIComponent(spotifyurl) + "'%20limit%201";
-        var params = '&format=json&diagnostics=true&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys&callback=?';
-        return $.ajax({
-            url: url+qry+params,
-            dataType: 'jsonp',
-            jsonp: 'callback',
-            jsonpCallback: 'moreTracksLikeThis.callbackSpotifyLookup',
-            cache:true,
-        });
+        var regex = /[\d\w]{22}/;
+        var match = regex.exec(lookupurl);
+
+        if (!match) {
+            return $('#messages').html('<p>Sorry, spotify link is invalid</p>');
+        }
+
+
+        var spotifyurl = 'https://api.spotify.com/v1/tracks/'  + encodeURIComponent(match[0]);
+        $.getJSON(spotifyurl, callbackSpotifyLookup)
+            .error(function() {
+                $('#messages').html('<p>Sorry, that URL didn\'t yield any useful data.</p> ');
+            });
     };
+
     // process the spotify lookup
-    var callbackSpotifyLookup = function(data) {
-        if (data.query.results) {
-            $('#track').val(data.query.results.track.name);
-            $('#artist').val(data.query.results.track.artist.name);
+    function callbackSpotifyLookup(data) {
+        if (data) {
+            $('#track').val(data.name);
+            $('#artist').val(data.artists[0].name);
             $('#lookup').val('');
             $('#search').click();
         } else {
             $('#messages').html('<p>Sorry, that URL didn\'t yield any useful data.</p> ');
         }
-    };
+    }
+
+
+    // From DavidBiddle
+    // https://github.com/hackday-people/moretrackslikethis.com/pull/4/files
+    // 
+    // Strip special characters from search string
+    var formatSearchString = function(string){
+        string = string.replace(/&/g,'').replace(/>/g,'').replace(/</g,'').replace(/"/g,'').replace(/'/g,'');
+        return string;
+    }
     
     
     // return functions that can be called from the outside world
